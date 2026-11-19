@@ -104,6 +104,19 @@ bool AzureStorageFileSystem::HasExclusiveCreateToken(const Azure::Storage::Metad
 	return it != metadata.end() && it->second == token;
 }
 
+void AzureStorageFileSystem::CheckReadETag(const AzureFileHandle &handle, const string &read_etag) {
+	if (handle.options.unsafe_disable_etag_checks || handle.etag.empty()) {
+		return;
+	}
+	auto got = StripETagQuotes(read_etag);
+	if (got == handle.etag) {
+		return;
+	}
+	throw IOException("ETag on reading file \"%s\" changed after it was opened: expected %s, read %s. You can "
+	                  "disable checking ETags via `SET azure_unsafe_disable_etag_checks = true;`",
+	                  handle.path, handle.etag, got);
+}
+
 bool AzureFileHandle::PostConstruct() {
 	return static_cast<AzureStorageFileSystem &>(file_system).LoadFileInfo(*this);
 }
@@ -226,6 +239,8 @@ void AzureStorageFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_b
 				hfh.file_offset += to_read;
 				break;
 			} else {
+				// a failed refill must not leave other bytes under the old buffer range
+				hfh.buffer_start = hfh.buffer_end = 0;
 				ReadRange(hfh, hfh.file_offset, (char *)hfh.read_buffer.get(), new_buffer_available);
 				hfh.buffer_available = new_buffer_available;
 				hfh.buffer_idx = 0;
@@ -372,6 +387,11 @@ AzureOptions AzureStorageFileSystem::ParseAzureOptions(optional_ptr<FileOpener> 
 	if (FileOpener::TryGetCurrentSetting(opener, "azure_write_staged_blocks_per_commit",
 	                                     write_staged_blocks_per_commit_val)) {
 		options.write_staged_blocks_per_commit = write_staged_blocks_per_commit_val.GetValue<idx_t>();
+	}
+
+	Value unsafe_disable_etag_checks_val;
+	if (FileOpener::TryGetCurrentSetting(opener, "azure_unsafe_disable_etag_checks", unsafe_disable_etag_checks_val)) {
+		options.unsafe_disable_etag_checks = unsafe_disable_etag_checks_val.GetValue<bool>();
 	}
 
 	return options;

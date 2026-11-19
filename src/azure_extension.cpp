@@ -91,6 +91,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Does not affect the 50,000-block blob limit; increase azure_write_block_size for that.",
 	                          LogicalType::UBIGINT, Value::UBIGINT(default_options.write_staged_blocks_per_commit));
 
+	config.AddExtensionOption(
+	    "azure_unsafe_disable_etag_checks",
+	    "Do not check that reads return the version (ETag) of the file seen when it was opened. By "
+	    "default a file replaced while it is being read fails instead of mixing two versions.",
+	    LogicalType::BOOLEAN, Value::BOOLEAN(default_options.unsafe_disable_etag_checks));
+
 	auto *http_proxy = std::getenv("HTTP_PROXY");
 	Value default_http_value = http_proxy ? Value(http_proxy) : Value(nullptr);
 	config.AddExtensionOption("azure_http_proxy",

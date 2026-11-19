@@ -427,6 +427,8 @@ void AzureBlobStorageFileSystem::ReadRange(AzureFileHandle &handle, idx_t file_o
 		options.TransferOptions.InitialChunkSize = afh.options.read_transfer_chunk_size;
 		options.TransferOptions.ChunkSize = afh.options.read_transfer_chunk_size;
 		auto res = afh.blob_client.DownloadTo((uint8_t *)buffer_out, buffer_out_len, options);
+		// The SDK pins every chunk of one DownloadTo to the first chunk's ETag; pin that to the ETag seen at open
+		CheckReadETag(afh, res.Value.Details.ETag.ToString());
 
 	} catch (const Azure::Storage::StorageException &e) {
 		throw IOException("AzureBlobStorageFileSystem Read to '%s' failed with %s Reason Phrase: %s", afh.path,

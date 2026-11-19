@@ -36,12 +36,22 @@ class Store:
         self.metadata = {}  # path -> {key: value}
         self.staged = {}  # DFS: path -> {position: bytes}; Blob: path -> {block id: bytes}
         self.etag = 0
+        self.etags = {}  # path -> ETag of the current version
         self.writes = []  # (method, path) of every request that changed a file
         self.lose_answer = {}  # path -> "drop" | "500": lose the answer to the next successful create of path
 
-    def next_etag(self):
+    def next_etag(self, path=None):
         self.etag += 1
-        return f'"0x{self.etag:x}"'
+        etag = f'"0x{self.etag:x}"'
+        if path is not None:
+            self.etags[path] = etag
+        return etag
+
+    def replace(self, path, data):
+        """Replace a file's content out of band, as another writer would (a new version, a new ETag)."""
+        with self.lock:
+            self.files[path] = data
+            self.next_etag(path)
 
 
 STORE = Store()
@@ -105,11 +115,11 @@ class Mock(http.server.BaseHTTPRequestHandler):
             return
         if how == "500":
             return self.reply(500, error="OperationTimedOut", xml=xml)
-        self.reply(201, headers={"ETag": STORE.next_etag()})
+        self.reply(201, headers={"ETag": STORE.etags[path]})
 
     def blob_headers(self, path):
         headers = {
-            "ETag": f'"{path}-{len(STORE.files[path])}"',
+            "ETag": STORE.etags.get(path, '"0x0"'),
             "x-ms-blob-type": "BlockBlob",
             "x-ms-creation-time": email.utils.formatdate(usegmt=True),
             "x-ms-lease-state": "available",
@@ -163,6 +173,7 @@ class Mock(http.server.BaseHTTPRequestHandler):
             STORE.writes.append(("PUT", path))
             STORE.files[path] = b""
             STORE.staged[path] = {}
+            STORE.next_etag(path)
             props = self.headers.get("x-ms-properties") or ""
             STORE.metadata[path] = {
                 k: base64.b64decode(v).decode() for k, v in (p.split("=", 1) for p in props.split(",") if p)
@@ -177,6 +188,7 @@ class Mock(http.server.BaseHTTPRequestHandler):
             staged = STORE.staged.get(path, {})
             STORE.writes.append(("PUT", path))
             STORE.files[path] = b"".join(staged[i.decode()] for i in ids)
+            STORE.next_etag(path)
             STORE.metadata[path] = {
                 k[len("x-ms-meta-") :]: v for k, v in self.headers.items() if k.lower().startswith("x-ms-meta-")
             }
@@ -199,7 +211,7 @@ class Mock(http.server.BaseHTTPRequestHandler):
                     content = content[:pos] + chunk
                 STORE.files[path] = content[:position]
                 STORE.staged[path] = {}
-                return self.reply(200, headers={"ETag": STORE.next_etag()})
+                return self.reply(200, headers={"ETag": STORE.next_etag(path)})
         self.reply(400, error="UnsupportedOperation")
 
 

@@ -95,6 +95,10 @@ jobs:
         run: |
           python3 test/null_if_exists/check_null_if_exists.py ./build/release/extension/azure/azure.duckdb_extension --azurite "$AZURE_STORAGE_CONNECTION_STRING" writes
 
+      - name: Reads pinned to the ETag (DFS mock and Azurite)
+        run: |
+          python3 test/read_etag/check_read_etag.py ./build/release/extension/azure/azure.duckdb_extension --azurite "$AZURE_STORAGE_CONNECTION_STRING" writes
+
       - name: Azure test server log
         if: always()
         shell: bash

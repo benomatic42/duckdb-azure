@@ -27,6 +27,8 @@ struct AzureOptions {
 	idx_t read_buffer_size = (idx_t)8 * 1024 * 1024;
 	idx_t write_block_size = WRITE_BLOCK_SIZE_DEFAULT;
 	idx_t write_staged_blocks_per_commit = 0;
+	// Reads check the ETag seen at open, so a file replaced mid-read fails instead of mixing versions
+	bool unsafe_disable_etag_checks = false;
 };
 
 class AzureContextState : public ClientContextState {
@@ -162,6 +164,8 @@ protected:
 	static const string EXCLUSIVE_CREATE_TOKEN_KEY;
 	static string NewExclusiveCreateToken();
 	static bool HasExclusiveCreateToken(const Azure::Storage::Metadata &metadata, const string &token);
+	// Throws if a read returned another version (ETag) of the file than the one seen when it was opened
+	static void CheckReadETag(const AzureFileHandle &handle, const string &read_etag);
 	static AzureOptions ParseAzureOptions(optional_ptr<FileOpener> opener);
 	// The path with a trailing '/': the spelling of a directory, for listings and secret lookups (see LookupSecret)
 	static string AsDirectoryPath(const string &path);

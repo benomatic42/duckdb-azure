@@ -8,6 +8,9 @@
 //   race <url> <n>        n threads run "nie" on url at once, content "writer-<i>";
 //                         prints "winners=<k> errors=<e> winner=writer-<i>"
 //   cat  <url>            prints "size=<n> content=<bytes>", or "missing"
+//   put  <url> <content>  creates or overwrites the file
+//   read2 <url> <offset>  opens for reading (DIRECT_IO: one request per read), reads [0, offset), prints it and
+//                         "ready", waits for a line on stdin, then reads [offset, end) and prints it
 #include "duckdb.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/string_util.hpp"
@@ -131,6 +134,27 @@ int main(int argc, char **argv) {
 			}
 			std::cout << "winners=" << winners.load() << " errors=" << errors.load() << " winner=writer-"
 			          << winner.load() << std::endl;
+		} else if (op == "put") {
+			auto created =
+			    CreateWith(*con, url, FileFlags::FILE_FLAGS_WRITE | FileFlags::FILE_FLAGS_FILE_CREATE_NEW, arg);
+			std::cout << (created ? "written" : "null") << std::endl;
+		} else if (op == "read2") {
+			auto offset = std::stoull(arg);
+			con->context->RunFunctionInTransaction([&]() {
+				auto &fs = FileSystem::GetFileSystem(*con->context);
+				auto handle = fs.OpenFile(url, FileFlags::FILE_FLAGS_READ | FileFlags::FILE_FLAGS_DIRECT_IO);
+				string first(offset, '\0');
+				handle->Read((void *)first.data(), offset, 0);
+				std::cout << "first=" << first << std::endl << "ready" << std::endl;
+				string line;
+				std::getline(std::cin, line);
+				auto size = handle->GetFileSize();
+				string rest(size > offset ? size - offset : 0, '\0');
+				if (!rest.empty()) {
+					handle->Read((void *)rest.data(), rest.size(), offset);
+				}
+				std::cout << "rest=" << rest << std::endl;
+			});
 		} else if (op == "cat") {
 			con->context->RunFunctionInTransaction([&]() {
 				auto &fs = FileSystem::GetFileSystem(*con->context);
